@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    El padre de Spring Boot fija las versiones de todo el ecosistema (Jackson,
+    JUnit, Mockito...). Por eso las dependencias de los modulos casi nunca
+    llevan <version>: la pone el padre y asi no se pelean entre si.
+  -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.16</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>gt.umg.agua</groupId>
+  <artifactId>payment-dispatcher</artifactId>
+  <version>1.0.0</version>
+  <packaging>pom</packaging>
+  <name>payment-dispatcher</name>
+  <description>Despachador de pagos del sistema de agua potable hacia el banco y el ERP municipal</description>
+
+  <!--
+    Los modulos se agregan conforme se construyen. Maven falla si declara uno
+    que todavia no existe en disco.
+  -->
+  <modules>
+    <module>common</module>
+  </modules>
+
+  <properties>
+    <java.version>21</java.version>
+    <!-- Spring Cloud 2025.0.x es la linea que acompana a Spring Boot 3.5. -->
+    <spring-cloud.version>2025.0.3</spring-cloud.version>
+    <spring-cloud-aws.version>3.4.2</spring-cloud-aws.version>
+    <aws-sdk.version>2.39.6</aws-sdk.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.awspring.cloud</groupId>
+        <artifactId>spring-cloud-aws-dependencies</artifactId>
+        <version>${spring-cloud-aws.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>bom</artifactId>
+        <version>${aws-sdk.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <!-- El mensaje canonico vive una sola vez y lo comparten producer y consumer. -->
+      <dependency>
+        <groupId>gt.umg.agua</groupId>
+        <artifactId>common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>

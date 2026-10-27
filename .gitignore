@@ -1,0 +1,20 @@
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Sistema
+.DS_Store
+
+# Configuracion local con credenciales: nunca al repositorio.
+# En el servidor las variables viven en el EnvironmentFile de systemd.
+**/application-local.yml
+**/application-local.yaml
+.env
