@@ -1,0 +1,33 @@
+server:
+  port: 8081
+  # Solo escucha en la propia maquina: el health no tiene por que verse en la red.
+  address: 127.0.0.1
+
+spring:
+  application:
+    name: producer
+  cloud:
+    aws:
+      region:
+        static: us-east-2
+  http:
+    client:
+      # Si el monolito no contesta, cortar y reintentar en el siguiente ciclo.
+      connect-timeout: 3s
+      read-timeout: 10s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+app:
+  laravel:
+    # http://<IP-privada-del-monolito>/api/integracion
+    base-url: ${LARAVEL_BASE_URL}
+    token: ${INTEGRACION_TOKEN}
+  cola-pagos: pagos-envio
+  reclamo:
+    intervalo-ms: 30000
+    limite: 50
