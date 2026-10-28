@@ -24,7 +24,9 @@ public final class Dinero {
      * @throws ArithmeticException si el monto trae mas de dos decimales
      */
     public static long aCentavos(BigDecimal monto) {
-        return monto.setScale(2, RoundingMode.UNNECESSARY).movePointRight(2).longValueExact();
+        return monto.setScale(2, RoundingMode.UNNECESSARY)
+                .movePointRight(2)
+                .longValueExact();
     }
 
     /**
