@@ -43,7 +43,7 @@
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
-            <artifactId>dynamodb-enhanced</artifactId>
+            <artifactId>dynamodb</artifactId>
         </dependency>
         <!-- Lo necesita el codigo que genera openapi-generator. -->
         <dependency>

@@ -1,0 +1,155 @@
+package gt.umg.agua.dispatcher.consumer;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import gt.umg.agua.dispatcher.common.Destino;
+import gt.umg.agua.dispatcher.common.PagoMensaje;
+import java.time.Duration;
+import java.util.Map;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.DynamoDbException;
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+
+@ExtendWith(MockitoExtension.class)
+class RepositorioEstadoTest {
+
+    @Mock
+    private DynamoDbClient dynamo;
+
+    @Captor
+    private ArgumentCaptor<PutItemRequest> escritura;
+
+    @Captor
+    private ArgumentCaptor<GetItemRequest> lectura;
+
+    private final PagoMensaje pago = PagosDePrueba.unPago();
+
+    private RepositorioEstado repositorio() {
+        return new RepositorioEstado(dynamo, PagosDePrueba.props());
+    }
+
+    @Test
+    @DisplayName("un pago aceptado queda ENTREGADO con su referencia")
+    void guardaElEntregado() {
+        repositorio().guardar(pago, Resultado.entregado(Destino.BANCO, 201, "BNK-20261028-8F3K2Q"), 1);
+
+        verify(dynamo).putItem(escritura.capture());
+        Map<String, AttributeValue> fila = escritura.getValue().item();
+
+        assertThat(escritura.getValue().tableName()).isEqualTo("pago_envio_estado");
+        assertThat(fila.get("llave").s()).isEqualTo("EQD-000210");
+        assertThat(fila.get("destino").s()).isEqualTo("BANCO");
+        assertThat(fila.get("estado").s()).isEqualTo("ENTREGADO");
+        assertThat(fila.get("referencia").s()).isEqualTo("BNK-20261028-8F3K2Q");
+        // Para encontrar el pago en la consola sin cruzar contra la base.
+        assertThat(fila.get("folio").s()).isEqualTo("REC-0210");
+        assertThat(fila.get("cliente").s()).isEqualTo("CLI-0042");
+    }
+
+    @Test
+    @DisplayName("un duplicado tambien queda ENTREGADO: es lo que compra la llave de idempotencia")
+    void elDuplicadoQuedaEntregado() {
+        repositorio().guardar(pago,
+                Resultado.duplicado(Destino.ERP, "DOCUMENTO_DUPLICADO", "ya fue contabilizado"), 2);
+
+        verify(dynamo).putItem(escritura.capture());
+        Map<String, AttributeValue> fila = escritura.getValue().item();
+
+        assertThat(fila.get("estado").s()).isEqualTo("ENTREGADO");
+        assertThat(fila.get("codigo").s()).isEqualTo("DOCUMENTO_DUPLICADO");
+        assertThat(fila.get("recepciones").n()).isEqualTo("2");
+    }
+
+    @Test
+    @DisplayName("un fallo pasajero queda REINTENTANDO, no ERROR")
+    void elFalloPasajeroQuedaReintentando() {
+        repositorio().guardar(pago,
+                Resultado.reintentable(Destino.BANCO, 503, "SERVICE_UNAVAILABLE", "no disponible",
+                        Duration.ofSeconds(3)),
+                1);
+
+        verify(dynamo).putItem(escritura.capture());
+
+        // La diferencia importa: lo que queda REINTENTANDO vuelve, lo que
+        // queda en ERROR ya no.
+        assertThat(escritura.getValue().item().get("estado").s()).isEqualTo("REINTENTANDO");
+    }
+
+    @Test
+    @DisplayName("un rechazo por los datos del pago queda en ERROR")
+    void elRechazoDefinitivoQuedaEnError() {
+        repositorio().guardar(pago,
+                Resultado.definitivo(Destino.BANCO, 422, "UNSUPPORTED_CHANNEL", "canal no soportado"), 1);
+
+        verify(dynamo).putItem(escritura.capture());
+
+        assertThat(escritura.getValue().item().get("estado").s()).isEqualTo("ERROR");
+        assertThat(escritura.getValue().item().get("codigo").s()).isEqualTo("UNSUPPORTED_CHANNEL");
+    }
+
+    @Test
+    @DisplayName("si no se puede guardar el veredicto, el mensaje debe volver a la cola")
+    void elFalloAlGuardarSePropaga() {
+        when(dynamo.putItem(any(PutItemRequest.class)))
+                .thenThrow(DynamoDbException.builder().message("sin cuota").build());
+
+        // Dar por entregado un pago cuyo estado nadie anoto es como no
+        // haberlo entregado.
+        assertThatThrownBy(() -> repositorio()
+                .guardar(pago, Resultado.entregado(Destino.BANCO, 201, "BNK-1"), 1))
+                .isInstanceOf(DynamoDbException.class);
+    }
+
+    @Test
+    @DisplayName("reconoce al destino que ya tiene el pago y lee de forma consistente")
+    void reconoceLoQueYaEstaEntregado() {
+        when(dynamo.getItem(any(GetItemRequest.class))).thenReturn(GetItemResponse.builder()
+                .item(Map.of("estado", AttributeValue.builder().s("ENTREGADO").build()))
+                .build());
+
+        assertThat(repositorio().yaEntregado("EQD-000210", Destino.BANCO)).isTrue();
+
+        verify(dynamo).getItem(lectura.capture());
+        // Sin lectura consistente se podria leer una copia atrasada y
+        // reenviarle al banco un pago que ya tiene.
+        assertThat(lectura.getValue().consistentRead()).isTrue();
+        assertThat(lectura.getValue().key().get("destino").s()).isEqualTo("BANCO");
+    }
+
+    @Test
+    @DisplayName("lo que esta REINTENTANDO no cuenta como entregado")
+    void loQueFaltaNoCuentaComoEntregado() {
+        when(dynamo.getItem(any(GetItemRequest.class))).thenReturn(GetItemResponse.builder()
+                .item(Map.of("estado", AttributeValue.builder().s("REINTENTANDO").build()))
+                .build());
+
+        assertThat(repositorio().yaEntregado("EQD-000210", Destino.ERP)).isFalse();
+    }
+
+    @Test
+    @DisplayName("sin fila, o sin poder consultar, se asume que falta entregar")
+    void anteLaDudaSeReenvia() {
+        when(dynamo.getItem(any(GetItemRequest.class))).thenReturn(GetItemResponse.builder().build());
+        assertThat(repositorio().yaEntregado("EQD-000211", Destino.BANCO)).isFalse();
+
+        when(dynamo.getItem(any(GetItemRequest.class)))
+                .thenThrow(DynamoDbException.builder().message("sin cuota").build());
+        // Un reenvio es inofensivo por la llave de idempotencia; darlo por
+        // entregado sin saberlo, no.
+        assertThat(repositorio().yaEntregado("EQD-000211", Destino.BANCO)).isFalse();
+    }
+}
