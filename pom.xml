@@ -30,6 +30,7 @@
   <modules>
     <module>common</module>
       <module>producer</module>
+    <module>consumer</module>
   </modules>
 
   <properties>
@@ -71,4 +72,19 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
+  <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+        <excludes>
+          <!--
+            La configuracion local nunca se empaqueta: lleva el token y el jar
+            se copia al servidor. En desarrollo se lee desde el directorio del
+            modulo, no desde el classpath.
+          -->
+          <exclude>application-local.yml</exclude>
+        </excludes>
+      </resource>
+    </resources>
+  </build>
 </project>

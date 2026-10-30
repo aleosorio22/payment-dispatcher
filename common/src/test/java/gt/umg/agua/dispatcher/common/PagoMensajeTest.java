@@ -3,10 +3,13 @@ package gt.umg.agua.dispatcher.common;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.TimeZone;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -48,7 +51,20 @@ class PagoMensajeTest {
             }
             """;
 
-    private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    /**
+     * Configurado como lo deja Spring Boot: fechas en texto ISO y no como
+     * numero de epoca, que es lo que hace un ObjectMapper recien creado.
+     */
+    private final ObjectMapper mapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+    /** El de produccion: application.yml le fija spring.jackson.time-zone. */
+    private final ObjectMapper enHoraDeGuatemala = JsonMapper.builder()
+            .addModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .defaultTimeZone(TimeZone.getTimeZone("America/Guatemala"))
+            .build();
 
     @Test
     @DisplayName("lee el canonico que emite el monolito")
@@ -85,6 +101,42 @@ class PagoMensajeTest {
         assertThat(pago.total()).isEqualByComparingTo(new BigDecimal("102.37"));
         assertThat(Dinero.aCentavos(pago.total())).isEqualTo(10237);
         assertThat(ValidadorPago.validar(pago)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("escribe los montos como texto, nunca como numero JSON")
+    void escribeLosMontosComoTexto() throws Exception {
+        PagoMensaje pago = mapper.readValue(CANONICO, PagoMensaje.class);
+
+        String json = mapper.writeValueAsString(pago);
+
+        // Con comillas. Sin ellas el monto seria un numero de punto flotante
+        // para cualquiera que lea la cola con otro lenguaje.
+        assertThat(json).contains("\"total\":\"102.37\"");
+        assertThat(json).contains("\"monto\":\"102.37\"");
+    }
+
+    @Test
+    @DisplayName("con la zona de Guatemala, la fecha ida y vuelta conserva el -06:00")
+    void conservaElDesfaseIdaYVuelta() throws Exception {
+        PagoMensaje pago = enHoraDeGuatemala.readValue(CANONICO, PagoMensaje.class);
+
+        String json = enHoraDeGuatemala.writeValueAsString(pago);
+
+        // Un cobro de las 19:00 reescrito a UTC cae al dia siguiente, y
+        // entonces fechaPago y fechaEmision dejan de cuadrar para el ERP.
+        assertThat(json).contains("\"fechaPago\":\"2026-10-26T14:32:11-06:00\"");
+        assertThat(json).contains("\"fechaEmision\":\"2026-10-26\"");
+    }
+
+    @Test
+    @DisplayName("sin zona configurada, Jackson reescribe la fecha a UTC desde la lectura")
+    void sinZonaConfiguradaLaFechaSeVaAUtc() throws Exception {
+        // Documenta por que application.yml fija spring.jackson.time-zone: el
+        // ajuste no ocurre al escribir, ocurre ya al leer el mensaje.
+        PagoMensaje pago = mapper.readValue(CANONICO, PagoMensaje.class);
+
+        assertThat(mapper.writeValueAsString(pago)).contains("\"fechaPago\":\"2026-10-26T20:32:11Z\"");
     }
 
     @Test

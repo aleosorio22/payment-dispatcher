@@ -1,5 +1,6 @@
 package gt.umg.agua.dispatcher.common;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -14,9 +15,10 @@ import java.util.List;
  * destino pide los campos con otros nombres y otras unidades; si el canonico
  * copiara a uno de ellos, el otro quedaria siempre a medias.
  *
- * <p>Los montos son {@link BigDecimal} porque llegan como texto con dos
- * decimales ("150.75"). En ningun punto del camino un quetzal pasa por un
- * {@code double}.
+ * <p>Los montos son {@link BigDecimal} y viajan como texto con dos decimales
+ * ("150.75"), nunca como numero JSON: en ningun punto del camino un quetzal
+ * pasa por un {@code double}. Al leer se aceptan las dos formas, asi que un
+ * mensaje viejo encolado antes de este cambio se procesa igual.
  *
  * @param llave         identificador estable del envio; es la llave de idempotencia
  * @param pagoId        id del pago en el monolito
@@ -46,7 +48,7 @@ public record PagoMensaje(
         FormaPago formaPago,
         OffsetDateTime fechaPago,
         LocalDate fechaEmision,
-        BigDecimal total,
+        @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal total,
         String descripcion,
         List<LineaDetalle> detalle) {
 
@@ -60,5 +62,8 @@ public record PagoMensaje(
     public record Periodo(int anio, int mes) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record LineaDetalle(Rubro rubro, String descripcion, BigDecimal monto) {}
+    public record LineaDetalle(
+            Rubro rubro,
+            String descripcion,
+            @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal monto) {}
 }

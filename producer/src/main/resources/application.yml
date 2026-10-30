@@ -6,6 +6,11 @@ server:
 spring:
   application:
     name: producer
+  jackson:
+    # El canonico viaja en la hora de Guatemala, la misma del monolito. Sin
+    # esto Jackson reescribe las fechas a UTC y `fechaPago` puede caer en un
+    # dia distinto al de `fechaEmision`.
+    time-zone: America/Guatemala
   cloud:
     aws:
       region:

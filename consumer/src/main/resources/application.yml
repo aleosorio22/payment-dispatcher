@@ -1,0 +1,80 @@
+server:
+  port: 8082
+  # Solo escucha local: el health no tiene por que verse en la red.
+  address: 127.0.0.1
+
+spring:
+  application:
+    name: consumer
+  jackson:
+    # Lo mismo que en el producer: sin esto, al LEER el mensaje de la cola
+    # Jackson ya reescribe la fecha a UTC, y de ahi pasa tal cual a los dos
+    # destinos.
+    time-zone: America/Guatemala
+  cloud:
+    aws:
+      region:
+        static: us-east-2
+      sqs:
+        listener:
+          # Hasta 5 pagos a la vez. Mas no gana nada: el cuello de botella
+          # son los dos simuladores, no esta maquina.
+          max-concurrent-messages: 5
+          max-messages-per-poll: 5
+    openfeign:
+      client:
+        config:
+          default:
+            # Los recomienda el contrato. Con 3 s de lectura, el escenario
+            # TIMEOUT del simulador (4-8 s) corta de nuestro lado, que es
+            # justo lo que queremos ejercitar.
+            connect-timeout: 2000
+            read-timeout: 3000
+            logger-level: basic
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+# URL real de los simuladores. Sin esto apuntan a REEMPLAZAR_API_ID.
+# Estan en us-east-1 pero son endpoints publicos: se alcanzan desde us-east-2.
+bank:
+  url: https://gdsi5lyj34.execute-api.us-east-1.amazonaws.com/prod
+erp:
+  url: https://gdsi5lyj34.execute-api.us-east-1.amazonaws.com/prod
+
+# Nombres exactos que espera el ClientConfiguration generado. No cambiarlos.
+bankpaymentssimulator:
+  security:
+    apiKeyAuth:
+      key: ${SIMULADOR_API_KEY}
+erppaymentssimulator:
+  security:
+    apiKeyAuth:
+      key: ${SIMULADOR_API_KEY}
+
+app:
+  equipo: ${TEAM_CODE:EQUIPO_D}
+  cola-pagos: pagos-envio
+  cola-dlq: pagos-envio-dlq
+  tabla-log: pago_envio_log
+  tabla-estado: pago_envio_estado
+  reintentos:
+    # Intentos por destino dentro de una sola recepcion del mensaje.
+    en-memoria: 3
+    backoff-inicial-ms: 1000
+    # Nunca esperar mas que esto dentro de una recepcion: si el destino pide
+    # un Retry-After enorme, se suelta el mensaje y que vuelva la cola.
+    retry-after-max-ms: 10000
+    # En la quinta recepcion se marca ERROR y se copia a la DLQ.
+    max-recepciones: 5
+  simulacion:
+    escenario-banco: ${ESCENARIO_BANCO:AUTO}
+    escenario-erp: ${ESCENARIO_ERP:AUTO}
+
+logging:
+  pattern:
+    # Cada linea de log lleva el pago del que habla.
+    level: "%5p [corr=%X{corr:-}] [llave=%X{llave:-}]"
