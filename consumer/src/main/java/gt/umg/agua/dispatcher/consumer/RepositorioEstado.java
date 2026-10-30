@@ -68,6 +68,7 @@ public class RepositorioEstado {
         ponerSiHay(fila, "codigo", resultado.codigo());
         ponerSiHay(fila, "mensaje", Textos.recortar(resultado.mensaje(), 500));
         ponerSiHay(fila, "referencia", resultado.referencia());
+        ponerSiHay(fila, "partida", resultado.partida());
         ponerSiHay(fila, "correlation_id", pago.correlationId());
         // Para poder buscar en la consola sin cruzar contra la base de datos.
         ponerSiHay(fila, "folio", pago.folio());

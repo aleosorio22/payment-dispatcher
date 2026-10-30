@@ -9,6 +9,7 @@ import java.time.Duration;
  *
  * @param codigo     codigo de negocio del destino, o cadena vacia si no vino
  * @param referencia receiptId del banco o numeroComprobante del ERP
+ * @param partida    numero de partida contable; solo lo devuelve el ERP
  * @param espera     lo que el destino pidio esperar; ZERO si no pidio nada
  */
 public record Resultado(
@@ -18,10 +19,11 @@ public record Resultado(
         String codigo,
         String mensaje,
         String referencia,
+        String partida,
         Duration espera) {
 
     public static Resultado entregado(Destino destino, int httpStatus, String referencia) {
-        return new Resultado(destino, Clasificacion.ENTREGADO, httpStatus, "", "", referencia, Duration.ZERO);
+        return new Resultado(destino, Clasificacion.ENTREGADO, httpStatus, "", "", referencia, "", Duration.ZERO);
     }
 
     /**
@@ -29,16 +31,16 @@ public record Resultado(
      * compra la llave de idempotencia.
      */
     public static Resultado duplicado(Destino destino, String codigo, String mensaje) {
-        return new Resultado(destino, Clasificacion.ENTREGADO, 409, codigo, mensaje, "", Duration.ZERO);
+        return new Resultado(destino, Clasificacion.ENTREGADO, 409, codigo, mensaje, "", "", Duration.ZERO);
     }
 
     public static Resultado reintentable(
             Destino destino, int httpStatus, String codigo, String mensaje, Duration espera) {
-        return new Resultado(destino, Clasificacion.REINTENTABLE, httpStatus, codigo, mensaje, "", espera);
+        return new Resultado(destino, Clasificacion.REINTENTABLE, httpStatus, codigo, mensaje, "", "", espera);
     }
 
     public static Resultado definitivo(Destino destino, int httpStatus, String codigo, String mensaje) {
-        return new Resultado(destino, Clasificacion.DEFINITIVO, httpStatus, codigo, mensaje, "", Duration.ZERO);
+        return new Resultado(destino, Clasificacion.DEFINITIVO, httpStatus, codigo, mensaje, "", "", Duration.ZERO);
     }
 
     /**
@@ -46,7 +48,7 @@ public record Resultado(
      * El pago pudo haber entrado igual, y el 409 del reintento lo aclarara.
      */
     public static Resultado sinRespuesta(Destino destino, String mensaje) {
-        return new Resultado(destino, Clasificacion.REINTENTABLE, 0, "SIN_RESPUESTA", mensaje, "", Duration.ZERO);
+        return new Resultado(destino, Clasificacion.REINTENTABLE, 0, "SIN_RESPUESTA", mensaje, "", "", Duration.ZERO);
     }
 
     /**
@@ -55,7 +57,17 @@ public record Resultado(
      * tiene la referencia buena y esta no la tiene.
      */
     public static Resultado yaEstaba(Destino destino) {
-        return new Resultado(destino, Clasificacion.ENTREGADO, 0, "YA_ENTREGADO", "", "", Duration.ZERO);
+        return new Resultado(destino, Clasificacion.ENTREGADO, 0, "YA_ENTREGADO", "", "", "", Duration.ZERO);
+    }
+
+    /**
+     * El mismo resultado con el numero de partida que devolvio el ERP. Es el
+     * asiento donde quedo registrado el pago, y la municipalidad lo necesita
+     * para cuadrar sus libros.
+     */
+    public Resultado conPartida(String partida) {
+        return new Resultado(
+                destino, clasificacion, httpStatus, codigo, mensaje, referencia, partida, espera);
     }
 
     public boolean fueEntregado() {

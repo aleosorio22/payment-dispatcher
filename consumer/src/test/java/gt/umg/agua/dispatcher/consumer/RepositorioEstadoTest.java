@@ -61,6 +61,21 @@ class RepositorioEstadoTest {
     }
 
     @Test
+    @DisplayName("guarda la partida contable que devolvio el ERP")
+    void guardaLaPartidaDelErp() {
+        repositorio().guardar(pago,
+                Resultado.entregado(Destino.ERP, 201, "ERP-20261030-Q7W2ZX")
+                        .conPartida("PDA-2026-000873"),
+                1);
+
+        verify(dynamo).putItem(escritura.capture());
+
+        // Sin esto el campo partida_erp del monolito quedaria vacio para
+        // siempre: el ERP solo lo dice una vez, al contabilizar.
+        assertThat(escritura.getValue().item().get("partida").s()).isEqualTo("PDA-2026-000873");
+    }
+
+    @Test
     @DisplayName("un duplicado tambien queda ENTREGADO: es lo que compra la llave de idempotencia")
     void elDuplicadoQuedaEntregado() {
         repositorio().guardar(pago,

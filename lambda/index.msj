@@ -1,0 +1,114 @@
+/**
+ * Le avisa al monolito como termino cada envio.
+ *
+ * El consumer escribe el veredicto en pago_envio_estado y no habla con
+ * Laravel. Esta funcion lee el stream de esa tabla y hace el PATCH. Asi el
+ * consumer no depende de que el monolito este arriba para terminar su
+ * trabajo: si Laravel esta caido, los avisos se reintentan solos desde el
+ * stream.
+ *
+ * Variables de entorno:
+ *   LARAVEL_BASE_URL   http://IP/api/integracion
+ *   INTEGRACION_TOKEN  el mismo que usa el producer
+ */
+
+const BASE = process.env.LARAVEL_BASE_URL.replace(/\/+$/, "");
+const TOKEN = process.env.INTEGRACION_TOKEN;
+const TIMEOUT = Number(process.env.TIMEOUT_SEGUNDOS ?? 5) * 1000;
+
+// REINTENTANDO no esta aqui a proposito: es un estado de paso y el monolito
+// solo tiene que enterarse de como termino el envio, no de cada vuelta.
+const TERMINALES = { ENTREGADO: "OK", ERROR: "ERROR" };
+
+// Lo que no mejora reintentando: el pago no existe, o el cuerpo no le gusta.
+const PERMANENTES = new Set([400, 404, 422]);
+
+export const handler = async (evento) => {
+  const fallidos = [];
+
+  for (const registro of evento.Records ?? []) {
+    try {
+      await procesar(registro);
+    } catch (problema) {
+      console.error(`FALLO ${registro.eventID}: ${problema.message}`);
+      // Sin esto, un solo evento malo obligaria a reprocesar el lote entero
+      // una y otra vez, y el shard se quedaria atorado.
+      fallidos.push({ itemIdentifier: registro.eventID });
+    }
+  }
+
+  return { batchItemFailures: fallidos };
+};
+
+async function procesar(registro) {
+  const imagen = registro.dynamodb?.NewImage;
+  if (!imagen || registro.eventName === "REMOVE") {
+    return;
+  }
+
+  const estado = texto(imagen, "estado");
+  if (!(estado in TERMINALES)) {
+    return;
+  }
+
+  const cuerpo = {
+    destino: texto(imagen, "destino"),
+    estado: TERMINALES[estado],
+    ronda: entero(imagen, "ronda", 1),
+  };
+
+  const referencia = texto(imagen, "referencia");
+  if (referencia) {
+    cuerpo.comprobante = referencia.slice(0, 40);
+  }
+
+  const partida = texto(imagen, "partida");
+  if (partida) {
+    cuerpo.partida = partida.slice(0, 40);
+  }
+
+  if (cuerpo.estado === "ERROR") {
+    const detalle = `${texto(imagen, "codigo")} ${texto(imagen, "mensaje")}`.trim();
+    cuerpo.error = (detalle || "Sin detalle").slice(0, 255);
+  }
+
+  await avisar(texto(imagen, "llave"), cuerpo);
+}
+
+async function avisar(llave, cuerpo) {
+  const respuesta = await fetch(`${BASE}/pagos/${llave}/envio`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-Integracion-Token": TOKEN,
+    },
+    body: JSON.stringify(cuerpo),
+    signal: AbortSignal.timeout(TIMEOUT),
+  });
+
+  const detalle = (await respuesta.text()).slice(0, 300);
+
+  if (respuesta.ok) {
+    console.log(`${llave} ${cuerpo.destino}=${cuerpo.estado} -> ${respuesta.status} ${detalle}`);
+    return;
+  }
+
+  if (PERMANENTES.has(respuesta.status)) {
+    // Reintentar esto solo atoraria el shard: el resto de los avisos
+    // quedaria esperando detras de un pago que nunca va a cuadrar.
+    console.warn(`IGNORADO ${llave} ${cuerpo.destino}: HTTP ${respuesta.status} ${detalle}`);
+    return;
+  }
+
+  throw new Error(`HTTP ${respuesta.status} ${detalle}`);
+}
+
+/** Saca un string del formato de DynamoDB, o cadena vacia si no vino. */
+function texto(imagen, campo) {
+  return imagen[campo]?.S ?? "";
+}
+
+function entero(imagen, campo, defecto) {
+  return imagen[campo]?.N !== undefined ? Number(imagen[campo].N) : defecto;
+}

@@ -56,10 +56,16 @@ public class GatewayErp implements Gateway {
                     props.simulacion().escenarioErp());
 
             ErpComprobante comprobante = respuesta.getBody();
-            return Resultado.entregado(
-                    Destino.ERP,
-                    respuesta.getStatusCode().value(),
-                    comprobante == null ? "" : comprobante.getNumeroComprobante());
+            if (comprobante == null) {
+                return Resultado.entregado(Destino.ERP, respuesta.getStatusCode().value(), "");
+            }
+            // La partida es el asiento contable donde quedo el pago. El
+            // monolito la guarda aparte del comprobante porque es lo que la
+            // municipalidad usa para cuadrar sus libros.
+            return Resultado
+                    .entregado(Destino.ERP, respuesta.getStatusCode().value(),
+                            comprobante.getNumeroComprobante())
+                    .conPartida(comprobante.getNumeroPartida());
 
         } catch (RetryableException sinRespuesta) {
             return Resultado.sinRespuesta(Destino.ERP, sinRespuesta.getMessage());
