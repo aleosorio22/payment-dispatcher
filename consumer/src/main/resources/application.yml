@@ -16,6 +16,11 @@ spring:
       region:
         static: us-east-2
       sqs:
+        # Si el nombre de la cola no existe, fallar en vez de crearla. El
+        # valor por defecto es CREATE: un error de dedo en el nombre dejaria
+        # al consumer leyendo una cola vacia recien creada, sin que nadie se
+        # entere de que los pagos siguen en la otra.
+        queue-not-found-strategy: fail
         listener:
           # Hasta 5 pagos a la vez. Mas no gana nada: el cuello de botella
           # son los dos simuladores, no esta maquina.
@@ -41,8 +46,12 @@ management:
 # URL real de los simuladores. Sin esto apuntan a REEMPLAZAR_API_ID.
 # Estan en us-east-1 pero son endpoints publicos: se alcanzan desde us-east-2.
 bank:
+  # El cliente generado usa ${bank.name} como contextId y ese anidado no trae
+  # valor por defecto: sin un nombre aqui, la aplicacion ni siquiera levanta.
+  name: banco
   url: https://gdsi5lyj34.execute-api.us-east-1.amazonaws.com/prod
 erp:
+  name: erp-municipal
   url: https://gdsi5lyj34.execute-api.us-east-1.amazonaws.com/prod
 
 # Nombres exactos que espera el ClientConfiguration generado. No cambiarlos.
