@@ -49,7 +49,17 @@ public record Resultado(
         return new Resultado(destino, Clasificacion.REINTENTABLE, 0, "SIN_RESPUESTA", mensaje, "", Duration.ZERO);
     }
 
+    /**
+     * Este destino ya lo tenia de una vuelta anterior, asi que no se le volvio
+     * a preguntar. No se guarda en la tabla de estado: la fila que ya esta
+     * tiene la referencia buena y esta no la tiene.
+     */
+    public static Resultado yaEstaba(Destino destino) {
+        return new Resultado(destino, Clasificacion.ENTREGADO, 0, "YA_ENTREGADO", "", "", Duration.ZERO);
+    }
+
     public boolean fueEntregado() {
         return clasificacion == Clasificacion.ENTREGADO;
     }
+
 }
