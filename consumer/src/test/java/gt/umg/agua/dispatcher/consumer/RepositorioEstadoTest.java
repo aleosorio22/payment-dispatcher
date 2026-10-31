@@ -3,6 +3,7 @@ package gt.umg.agua.dispatcher.consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -133,10 +134,14 @@ class RepositorioEstadoTest {
     @DisplayName("reconoce al destino que ya tiene el pago y lee de forma consistente")
     void reconoceLoQueYaEstaEntregado() {
         when(dynamo.getItem(any(GetItemRequest.class))).thenReturn(GetItemResponse.builder()
-                .item(Map.of("estado", AttributeValue.builder().s("ENTREGADO").build()))
+                .item(Map.of(
+                        "llave", AttributeValue.builder().s("EQD-000210").build(),
+                        "destino", AttributeValue.builder().s("BANCO").build(),
+                        "estado", AttributeValue.builder().s("ENTREGADO").build(),
+                        "referencia", AttributeValue.builder().s("BNK-20261028-8F3K2Q").build()))
                 .build());
 
-        assertThat(repositorio().yaEntregado("EQD-000210", Destino.BANCO)).isTrue();
+        assertThat(repositorio().reconfirmar("EQD-000210", Destino.BANCO)).isTrue();
 
         verify(dynamo).getItem(lectura.capture());
         // Sin lectura consistente se podria leer una copia atrasada y
@@ -146,25 +151,52 @@ class RepositorioEstadoTest {
     }
 
     @Test
+    @DisplayName("reescribe la fila para que el stream vuelva a avisarle al monolito")
+    void reescribeLaFilaParaDespertarElStream() {
+        when(dynamo.getItem(any(GetItemRequest.class))).thenReturn(GetItemResponse.builder()
+                .item(Map.of(
+                        "llave", AttributeValue.builder().s("EQD-000210").build(),
+                        "destino", AttributeValue.builder().s("ERP").build(),
+                        "estado", AttributeValue.builder().s("ENTREGADO").build(),
+                        "referencia", AttributeValue.builder().s("ERP-20261028-Q7W2ZX").build(),
+                        "partida", AttributeValue.builder().s("PDA-2026-000873").build()))
+                .build());
+
+        repositorio().reconfirmar("EQD-000210", Destino.ERP);
+
+        verify(dynamo).putItem(escritura.capture());
+        Map<String, AttributeValue> fila = escritura.getValue().item();
+
+        // Si no se escribiera nada, el stream no disparara y el pago quedaria
+        // ENCOLADO para siempre en el monolito aunque el ERP ya lo tenga.
+        assertThat(fila.get("estado").s()).isEqualTo("ENTREGADO");
+        // Y se reescribe entera: el recibo y la partida no se pierden.
+        assertThat(fila.get("referencia").s()).isEqualTo("ERP-20261028-Q7W2ZX");
+        assertThat(fila.get("partida").s()).isEqualTo("PDA-2026-000873");
+        assertThat(fila).containsKey("actualizado_en");
+    }
+
+    @Test
     @DisplayName("lo que esta REINTENTANDO no cuenta como entregado")
     void loQueFaltaNoCuentaComoEntregado() {
         when(dynamo.getItem(any(GetItemRequest.class))).thenReturn(GetItemResponse.builder()
                 .item(Map.of("estado", AttributeValue.builder().s("REINTENTANDO").build()))
                 .build());
 
-        assertThat(repositorio().yaEntregado("EQD-000210", Destino.ERP)).isFalse();
+        assertThat(repositorio().reconfirmar("EQD-000210", Destino.ERP)).isFalse();
+        verify(dynamo, never()).putItem(any(PutItemRequest.class));
     }
 
     @Test
     @DisplayName("sin fila, o sin poder consultar, se asume que falta entregar")
     void anteLaDudaSeReenvia() {
         when(dynamo.getItem(any(GetItemRequest.class))).thenReturn(GetItemResponse.builder().build());
-        assertThat(repositorio().yaEntregado("EQD-000211", Destino.BANCO)).isFalse();
+        assertThat(repositorio().reconfirmar("EQD-000211", Destino.BANCO)).isFalse();
 
         when(dynamo.getItem(any(GetItemRequest.class)))
                 .thenThrow(DynamoDbException.builder().message("sin cuota").build());
         // Un reenvio es inofensivo por la llave de idempotencia; darlo por
         // entregado sin saberlo, no.
-        assertThat(repositorio().yaEntregado("EQD-000211", Destino.BANCO)).isFalse();
+        assertThat(repositorio().reconfirmar("EQD-000211", Destino.BANCO)).isFalse();
     }
 }

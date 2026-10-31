@@ -81,31 +81,48 @@ public class RepositorioEstado {
     }
 
     /**
-     * Si un destino ya dijo que lo tiene, no hay para que volver a molestarlo.
+     * Si este destino ya tenia el pago, reescribe su fila tal cual y devuelve
+     * true para que no se le vuelva a enviar.
      *
-     * <p>Pasa de verdad: el banco acepta, el ERP devuelve 503, el mensaje
-     * vuelve a la cola y en la siguiente vuelta habria que reenviarle al banco
-     * un pago que ya registro. El 409 lo resolveria igual, pero esta consulta
-     * sale mas barata que una vuelta a internet.
+     * <p>La reescritura no es decorativa y por eso el metodo no se llama
+     * "yaEntregado": el monolito se entera por el stream de esta tabla, y si
+     * el consumer se saltara el envio sin escribir nada, el stream no
+     * disparara. El pago quedaria entregado de verdad pero ENCOLADO para
+     * siempre del otro lado, y el producer lo reclamaria cada media hora sin
+     * que nadie rompiera el circulo.
+     *
+     * <p>Se reescribe la fila entera, no una version recortada: asi no se
+     * pierde el numero de recibo ni la partida contable que trajo el envio
+     * original.
      */
-    public boolean yaEntregado(String llave, Destino destino) {
+    public boolean reconfirmar(String llave, Destino destino) {
         try {
             GetItemResponse respuesta = dynamo.getItem(GetItemRequest.builder()
                     .tableName(props.tablaEstado())
                     .key(Map.of("llave", texto(llave), "destino", texto(destino.name())))
-                    .projectionExpression("estado")
                     // Lectura consistente: lo que interesa es lo que se acabo
                     // de escribir en la vuelta anterior, no una copia atrasada.
                     .consistentRead(true)
                     .build());
 
-            return respuesta.hasItem()
-                    && ENTREGADO.equals(respuesta.item().getOrDefault("estado", texto("")).s());
+            if (!respuesta.hasItem()
+                    || !ENTREGADO.equals(respuesta.item().getOrDefault("estado", texto("")).s())) {
+                return false;
+            }
+
+            Map<String, AttributeValue> fila = new HashMap<>(respuesta.item());
+            fila.put("actualizado_en", texto(OffsetDateTime.now(ZONA).toString()));
+            dynamo.putItem(PutItemRequest.builder()
+                    .tableName(props.tablaEstado())
+                    .item(fila)
+                    .build());
+
+            return true;
         } catch (RuntimeException e) {
-            // Si no se puede consultar, se asume que falta entregar. Un
-            // reenvio es inofensivo gracias a la llave de idempotencia; darlo
-            // por entregado sin saberlo, no.
-            log.warn("No se pudo leer el estado llave={} destino={}: {}", llave, destino, e.getMessage());
+            // Ante cualquier tropiezo se responde que no, y el pago se vuelve
+            // a enviar. Es la salida segura: el destino contestara 409, eso
+            // cuenta como entregado y la fila se escribe por el camino normal.
+            log.warn("No se pudo reconfirmar llave={} destino={}: {}", llave, destino, e.getMessage());
             return false;
         }
     }

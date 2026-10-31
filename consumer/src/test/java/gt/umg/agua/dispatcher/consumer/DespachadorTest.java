@@ -133,13 +133,14 @@ class DespachadorTest {
     @Test
     @DisplayName("no le vuelve a enviar al destino que ya lo tiene")
     void noLeVuelveAEnviarAlQueYaLoTiene() {
-        when(estados.yaEntregado(pago.llave(), Destino.BANCO)).thenReturn(true);
+        when(estados.reconfirmar(pago.llave(), Destino.BANCO)).thenReturn(true);
         when(erp.enviar(pago)).thenReturn(Resultado.entregado(Destino.ERP, 201, "ERP-1"));
 
         Despacho despacho = despachador.despachar(pago, 2);
 
         verify(banco, never()).enviar(any());
-        // Tampoco se reescribe su fila: la que ya esta trae el recibo bueno.
+        // Su fila no se guarda por el camino normal: la reescribe reconfirmar,
+        // que conserva el recibo que trajo el envio original.
         verify(estados, times(1)).guardar(eq(pago), any(), anyInt());
         assertThat(despacho.todoEntregado()).isTrue();
     }

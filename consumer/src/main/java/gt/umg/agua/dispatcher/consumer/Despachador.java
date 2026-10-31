@@ -48,9 +48,11 @@ public class Despachador {
         List<Resultado> resultados = new ArrayList<>();
 
         for (Gateway gateway : gateways) {
-            if (estados.yaEntregado(pago.llave(), gateway.destino())) {
-                // No se guarda el estado: la fila que ya esta trae la
-                // referencia del recibo y esta vuelta no la tiene.
+            if (estados.reconfirmar(pago.llave(), gateway.destino())) {
+                // reconfirmar reescribe la fila que ya estaba, con su recibo
+                // intacto. Hace falta: el monolito se entera por el stream, y
+                // saltarse el envio sin escribir nada lo dejaria esperando una
+                // noticia que ya nadie le iba a dar.
                 log.debug("{} ya lo tenia, no se le vuelve a enviar", gateway.destino());
                 resultados.add(Resultado.yaEstaba(gateway.destino()));
                 continue;
