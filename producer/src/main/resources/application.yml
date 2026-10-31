@@ -33,6 +33,7 @@ app:
     base-url: ${LARAVEL_BASE_URL}
     token: ${INTEGRACION_TOKEN}
   cola-pagos: pagos-envio
+  cola-facturas: facturas-emitir
   reclamo:
     intervalo-ms: 30000
     limite: 50

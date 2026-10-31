@@ -43,19 +43,30 @@ public class ReclamoScheduler {
         }
 
         for (PagoMensaje pago : pagos) {
-            try {
-                sqs.send(to -> to.queue(props.colaPagos())
-                        .payload(pago)
-                        .header("correlationId", pago.correlationId()));
-                log.info("Encolado llave={} corr={}", pago.llave(), pago.correlationId());
-            } catch (Exception e) {
-                // Un pago que falla no debe impedir que los demas se encolen.
-                log.error("Fallo el envio a SQS llave={}: {}", pago.llave(), e.getMessage());
-            }
+            // El mismo pago va a dos colas porque son dos obligaciones
+            // distintas: entregarlo al banco y al ERP, y facturarlo. Cada
+            // servicio tiene su cola, su ritmo y sus fallos; si Digifact esta
+            // caido, el banco no se entera.
+            encolar(props.colaPagos(), pago, "Encolado");
+            encolar(props.colaFacturas(), pago, "A facturar");
         }
 
         if (!pagos.isEmpty()) {
             log.info("Ciclo terminado: {} pagos encolados", pagos.size());
+        }
+    }
+
+    private void encolar(String cola, PagoMensaje pago, String aviso) {
+        try {
+            sqs.send(to -> to.queue(cola)
+                    .payload(pago)
+                    .header("correlationId", pago.correlationId()));
+            log.info("{} llave={} corr={}", aviso, pago.llave(), pago.correlationId());
+        } catch (Exception e) {
+            // Un pago que falla no debe impedir que los demas se encolen, ni
+            // que el mismo pago llegue a la otra cola. El reclamo de los 30
+            // minutos lo vuelve a traer.
+            log.error("Fallo el envio a {} llave={}: {}", cola, pago.llave(), e.getMessage());
         }
     }
 }

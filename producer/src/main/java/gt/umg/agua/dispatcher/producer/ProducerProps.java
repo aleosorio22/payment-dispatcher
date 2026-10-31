@@ -10,11 +10,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * porque los pagos dejaron de encolarse.
  *
  * @param laravel    como alcanzar la API de integracion del monolito
- * @param colaPagos  nombre de la cola SQS donde se publica
- * @param reclamo    cada cuanto preguntar y cuantos pagos pedir por vez
+ * @param colaPagos    cola de la que lee el consumer para entregar al banco y al ERP
+ * @param colaFacturas cola de la que lee el facturador para emitir la factura
+ * @param reclamo      cada cuanto preguntar y cuantos pagos pedir por vez
  */
 @ConfigurationProperties("app")
-public record ProducerProps(Laravel laravel, String colaPagos, Reclamo reclamo) {
+public record ProducerProps(Laravel laravel, String colaPagos, String colaFacturas, Reclamo reclamo) {
 
     public record Laravel(String baseUrl, String token) {}
 

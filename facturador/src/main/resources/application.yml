@@ -1,0 +1,74 @@
+server:
+  port: 8083
+  # Solo escucha local: el health no tiene por que verse en la red.
+  address: 127.0.0.1
+
+spring:
+  application:
+    name: facturador
+  jackson:
+    # La fecha de emision de la factura es la hora del cobro, no UTC: con el
+    # desfase, un cobro de la noche cae al dia siguiente y la SAT lo nota.
+    time-zone: America/Guatemala
+  cloud:
+    aws:
+      region:
+        static: us-east-2
+      sqs:
+        # Si el nombre de la cola no existe, fallar en vez de crearla.
+        queue-not-found-strategy: fail
+        listener:
+          # Pocas a la vez: el cuello de botella es Digifact, no esta maquina.
+          max-concurrent-messages: 3
+          max-messages-per-poll: 3
+  http:
+    client:
+      connect-timeout: 5s
+      # Certificar pasa por la SAT y puede tardar; cortar antes solo haria
+      # reintentar un documento que quiza ya quedo autorizado.
+      read-timeout: 30s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+app:
+  cola-facturas: facturas-emitir
+  tabla-facturas: factura_emitida
+
+  # En pruebas, todas las facturas van a un solo buzon. Vacio significa
+  # mandarsela al vecino que trae el pago.
+  correo-receptor: ${FEL_CORREO_PRUEBAS:}
+
+  digifact:
+    base-url: ${FEL_BASE_URL:https://testnucgt.digifact.com/api}
+    usuario: ${FEL_USUARIO}
+    password: ${FEL_PASSWORD}
+
+  # Estos datos tienen que coincidir con el Registro Tributario del
+  # contribuyente. No se inventan: se consultan, y si no cuadran la SAT
+  # rechaza el documento antes de certificarlo.
+  emisor:
+    nit: ${FEL_NIT}
+    nombre: ${FEL_NOMBRE}
+    correo: ${FEL_CORREO_EMISOR}
+    afiliacion-iva: GEN
+    # Frase 1, escenario 2: afiliado al ISR Regimen Opcional Simplificado
+    # Sobre Ingresos. Si el emisor estuviera en el regimen sobre utilidades,
+    # seria el escenario 1.
+    tipo-frase: "1"
+    escenario: "2"
+    establecimiento: ${FEL_ESTABLECIMIENTO}
+    nombre-establecimiento: ${FEL_NOMBRE}
+    direccion:
+      calle: CIUDAD
+      codigo-postal: "01001"
+      municipio: GUATEMALA
+      departamento: GUATEMALA
+      pais: GT
+
+logging:
+  pattern:
+    level: "%5p [corr=%X{corr:-}] [llave=%X{llave:-}]"

@@ -40,13 +40,15 @@ class ReclamoSchedulerTest {
     }
 
     @Test
-    @DisplayName("publica en la cola un mensaje por cada pago reclamado")
-    void encolaCadaPago() {
+    @DisplayName("cada pago va a las dos colas: la de envio y la de facturacion")
+    void encolaCadaPagoEnLasDosColas() {
         when(laravel.reclamar(50)).thenReturn(List.of(pago("EQA-000001"), pago("EQA-000002")));
 
         scheduler.ciclo();
 
-        verify(sqs, times(2)).send(any(Consumer.class));
+        // Dos pagos por dos obligaciones distintas: entregarlos al banco y al
+        // ERP, y facturarlos. Cada servicio lee de su propia cola.
+        verify(sqs, times(4)).send(any(Consumer.class));
     }
 
     @Test
@@ -69,13 +71,16 @@ class ReclamoSchedulerTest {
 
         assertThatCode(() -> scheduler.ciclo()).doesNotThrowAnyException();
 
-        verify(sqs, times(2)).send(any(Consumer.class));
+        // El primer envio revienta y los otros tres salen igual: ni el resto
+        // de los pagos ni la otra cola pagan por un fallo aislado.
+        verify(sqs, times(4)).send(any(Consumer.class));
     }
 
     private static ProducerProps props() {
         return new ProducerProps(
                 new ProducerProps.Laravel("http://monolito.test/api/integracion", "token-de-prueba"),
                 "pagos-envio",
+                "facturas-emitir",
                 new ProducerProps.Reclamo(30_000, 50));
     }
 

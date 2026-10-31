@@ -108,6 +108,7 @@ class LaravelClientTest {
         return new ProducerProps(
                 new ProducerProps.Laravel("http://monolito.test/api/integracion", "token-de-prueba"),
                 "pagos-envio",
+                "facturas-emitir",
                 new ProducerProps.Reclamo(30_000, 50));
     }
 }

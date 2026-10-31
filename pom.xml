@@ -31,6 +31,7 @@
     <module>common</module>
       <module>producer</module>
     <module>consumer</module>
+    <module>facturador</module>
   </modules>
 
   <properties>
