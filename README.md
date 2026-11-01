@@ -217,7 +217,7 @@ mientras su factura era rechazada por un NIT con dígito verificador incorrecto.
 
 ### Opción A — contra el ambiente desplegado
 
-1. Abrir el monolito en `<URL_DEL_MONOLITO>` e iniciar sesión como cajero.
+1. Abrir el monolito en `http://77.113.86.31/admin/login` e iniciar sesión como cajero.
 2. Registrar un pago de cualquier boleta pendiente.
 3. En menos de un minuto, el pago aparece en la lista con el estado **ENVIADO** y el
    detalle **Banco OK · ERP OK**.
